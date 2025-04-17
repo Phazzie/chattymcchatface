@@ -24,11 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthManager = void 0;
-typescript;
 const events_1 = require("events");
-const IAuthManager_1 = require("./interfaces/IAuthManager");
-const IAuthProcess_1 = require("./interfaces/IAuthProcess");
-const IAuthProcessFactory_1 = require("./interfaces/IAuthProcessFactory");
 /**
  * Manages multiple authentication processes, one per connection ID.
  */
@@ -61,7 +57,7 @@ class AuthManager extends events_1.EventEmitter {
                 process.handleMessage(parsedMessage);
             }
             catch (e) {
-                this.logger.error(`[AuthManager] Failed to parse or handle message for ${connectionId}: ${e?.message}`);
+                this.logger.error(`[AuthManager] Failed to parse or handle message for ${connectionId}: ${e?.message}`, e);
                 process.abort(`Invalid message format: ${e?.message}`);
                 this.processes.delete(connectionId); // Clean up on parse error
             }

@@ -40,6 +40,16 @@ const WebviewProviderImpl_1 = require("../ui/WebviewProviderImpl");
 const MessageRenderer_1 = require("../ui/MessageRenderer");
 const UIStateManager_1 = require("../ui/UIStateManager");
 const UIEventHandler_1 = require("../ui/UIEventHandler");
+// New network implementations
+const BasicNetworkLifecycleManager_1 = require("../network/lifecycle/BasicNetworkLifecycleManager");
+const ConcreteConnectionHandlerFactory_1 = require("../network/factories/ConcreteConnectionHandlerFactory");
+const TcpPeerConnector_1 = require("../network/connectors/TcpPeerConnector");
+const TcpServerAcceptor_1 = require("../network/acceptors/TcpServerAcceptor");
+const UdpDiscoveryEvents_1 = require("../network/discovery/UdpDiscoveryEvents");
+// New auth implementations
+const NodeTimer_1 = require("../auth/util/NodeTimer");
+const AuthProcessFactory_1 = require("../auth/AuthProcessFactory");
+const AuthManager_1 = require("../auth/AuthManager");
 const uuid_1 = require("uuid");
 /**
  * Container for managing dependencies and their lifecycle.
@@ -73,7 +83,16 @@ class DependencyContainer {
         // Create the event handling service
         const eventHandlingService = new EventHandlingService_1.EventHandlingService();
         this.registerService('eventHandlingService', eventHandlingService);
-        // Create the auth service
+        // Create the timer for auth processes
+        const timer = new NodeTimer_1.NodeTimer();
+        this.registerService('timer', timer);
+        // Create the auth process factory
+        const authProcessFactory = new AuthProcessFactory_1.AuthProcessFactory(timer);
+        this.registerService('authProcessFactory', authProcessFactory);
+        // Create the auth manager
+        const authManager = new AuthManager_1.AuthManager(authProcessFactory, logger);
+        this.registerService('authManager', authManager);
+        // Create the legacy auth service (for backward compatibility)
         const authService = new authService_1.AuthService(logger);
         this.registerService('authService', authService);
         // Create the auth UI
@@ -90,10 +109,25 @@ class DependencyContainer {
         this.registerService('tcpServer', tcpServer);
         const tcpClient = new tcpClient_1.TcpClient(logger);
         this.registerService('tcpClient', tcpClient);
-        // Create the connection manager
+        // Create the connection handler factory
+        const connectionHandlerFactory = new ConcreteConnectionHandlerFactory_1.ConcreteConnectionHandlerFactory();
+        this.registerService('connectionHandlerFactory', connectionHandlerFactory);
+        // Create the network lifecycle manager
+        const lifecycleManager = new BasicNetworkLifecycleManager_1.BasicNetworkLifecycleManager(udpDiscovery, tcpServer, logger);
+        this.registerService('lifecycleManager', lifecycleManager);
+        // Create the peer connector
+        const peerConnector = new TcpPeerConnector_1.TcpPeerConnector(tcpClient, logger);
+        this.registerService('peerConnector', peerConnector);
+        // Create the incoming connection acceptor
+        const incomingAcceptor = new TcpServerAcceptor_1.TcpServerAcceptor(tcpServer, logger);
+        this.registerService('incomingAcceptor', incomingAcceptor);
+        // Create the discovery events
+        const discoveryEvents = new UdpDiscoveryEvents_1.UdpDiscoveryEvents(udpDiscovery, logger);
+        this.registerService('discoveryEvents', discoveryEvents);
+        // Create the legacy connection manager (for backward compatibility)
         const connectionManager = new ConnectionManager_1.ConnectionManager(logger, authService, messageHandler);
         this.registerService('connectionManager', connectionManager);
-        // Create the network manager
+        // Create the legacy network manager (for backward compatibility)
         const networkManager = new NetworkManagerRefactored_1.NetworkManagerRefactored(logger, udpDiscovery, tcpServer, tcpClient, authService, connectionManager, instanceId);
         this.registerService('networkManager', networkManager);
         // Create the command service

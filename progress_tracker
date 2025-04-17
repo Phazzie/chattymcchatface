@@ -38,19 +38,19 @@ This checklist guides the development process step-by-step. Mark items as comple
 
 ## Step 3: Authentication/Pairing ("Animal Names") (4 items)
 
-- [ ] **Task:** Define the simple auth protocol (e.g., Peer A connects, Peer B sends AUTH_REQ, Peer A sends AUTH_RESP(animals), Peer B validates and sends AUTH_SUCCESS/AUTH_FAIL).
+- [x] **Task:** Define the simple auth protocol (e.g., Peer A connects, Peer B sends AUTH_REQ, Peer A sends AUTH_RESP(animals), Peer B validates and sends AUTH_SUCCESS/AUTH_FAIL).
     - **DoD:** Protocol steps documented.
     - **AC:** Clear sequence of messages and expected payloads defined.
     - **Estimate:** 0.5 hours.
-- [ ] **Task:** Implement `AuthHandler` logic to manage the protocol state and validate names.
+- [x] **Task:** Implement `AuthHandler` logic to manage the protocol state and validate names.
     - **DoD:** `AuthHandler` class/module created with methods to start auth and handle incoming auth messages.
     - **AC:** Unit tests for validation logic pass.
     - **Estimate:** 3 hours.
-- [ ] **Task:** Integrate `AuthHandler` into `NetworkManager`'s connection sequence.
+- [x] **Task:** Integrate `AuthHandler` into `NetworkManager`'s connection sequence.
     - **DoD:** `NetworkManager` initiates auth via `AuthHandler` after TCP connection and only proceeds if auth succeeds.
     - **AC:** Integration tests show auth occurs and blocks/allows communication appropriately.
     - **Estimate:** 1.5 hours.
-- [ ] **Task:** Add simple VS Code input prompts (`vscode.window.showInputBox`) triggered by `AuthHandler` to ask the user for the three animal names.
+- [x] **Task:** Add simple VS Code input prompts (`vscode.window.showInputBox`) triggered by `AuthHandler` to ask the user for the three animal names.
     - **DoD:** Users are prompted for animal names during the pairing process.
     - **AC:** Input box appears when required by the auth protocol. Entered names are passed to `AuthHandler`.
     - **Estimate:** 1 hour.
@@ -80,19 +80,19 @@ This checklist guides the development process step-by-step. Mark items as comple
 
 ## Step 5: Message Sending & Receiving Logic (4 items)
 
-- [ ] **Task:** Implement `NetworkManager.sendMessage(data)` method.
+- [x] **Task:** Implement `NetworkManager.sendMessage(data)` method.
     - **DoD:** `NetworkManager` can send arbitrary string/buffer data over the established, authenticated connection.
     - **AC:** Data sent via the method is received by the connected peer. Unit tests pass.
     - **Estimate:** 1 hour.
-- [ ] **Task:** Implement message receiving and event emission in `NetworkManager`.
+- [x] **Task:** Implement message receiving and event emission in `NetworkManager`.
     - **DoD:** `NetworkManager` parses incoming data (e.g., splits by newline) and emits an event (e.g., `onMessageReceived`) with the message payload.
     - **AC:** Data received on the socket triggers the event with the correct payload. Unit tests pass.
     - **Estimate:** 1.5 hours.
-- [ ] **Task:** Wire up the message flow: Webview input -> `extension.ts` -> `NetworkManager.sendMessage`.
+- [x] **Task:** Wire up the message flow: Webview input -> `extension.ts` -> `NetworkManager.sendMessage`.
     - **DoD:** Messages typed in the webview are sent over the network connection.
     - **AC:** Integration test shows message sent from UI is received by peer's `NetworkManager`.
     - **Estimate:** 1 hour.
-- [ ] **Task:** Wire up the message flow: `NetworkManager` event -> `extension.ts` -> `WebviewProvider` -> Display in Webview.
+- [x] **Task:** Wire up the message flow: `NetworkManager` event -> `extension.ts` -> `WebviewProvider` -> Display in Webview.
     - **DoD:** Messages received from the network are displayed in the webview UI.
     - **AC:** Integration test shows message received by `NetworkManager` appears in the local webview UI.
     - **Estimate:** 1 hour.

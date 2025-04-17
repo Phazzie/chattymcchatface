@@ -29,6 +29,37 @@ import { IUIStateManager } from '../ui/interfaces/IUIStateManager';
 import { UIStateManager } from '../ui/UIStateManager';
 import { IUIEventHandler } from '../ui/interfaces/IUIEventHandler';
 import { UIEventHandler } from '../ui/UIEventHandler';
+
+// New network interfaces
+import { INetworkLifecycleManager } from '../network/interfaces/INetworkLifecycleManager';
+import { IConnectionHandlerFactory } from '../network/interfaces/IConnectionHandlerFactory';
+import { IActiveConnectionCoordinator } from '../network/interfaces/IActiveConnectionCoordinator';
+import { IPeerConnector } from '../network/interfaces/IPeerConnector';
+import { IIncomingConnectionAcceptor } from '../network/interfaces/IIncomingConnectionAcceptor';
+import { IDiscoveryEvents } from '../network/interfaces/IDiscoveryEvents';
+
+// New network implementations
+import { BasicNetworkLifecycleManager } from '../network/lifecycle/BasicNetworkLifecycleManager';
+import { ConcreteConnectionHandlerFactory } from '../network/factories/ConcreteConnectionHandlerFactory';
+import { TcpPeerConnector } from '../network/connectors/TcpPeerConnector';
+import { TcpServerAcceptor } from '../network/acceptors/TcpServerAcceptor';
+import { UdpDiscoveryEvents } from '../network/discovery/UdpDiscoveryEvents';
+import { AutoConnectDiscoveryCoordinator } from '../network/coordination/AutoConnectDiscoveryCoordinator';
+import { IncomingConnectionCoordinator } from '../network/coordination/IncomingConnectionCoordinator';
+import { NetworkManagerFacade } from '../network/NetworkManagerFacade';
+
+// New auth interfaces
+import { IAuthManager } from '../auth/interfaces/IAuthManager';
+import { IAuthProcess } from '../auth/interfaces/IAuthProcess';
+import { IAuthProcessFactory } from '../auth/interfaces/IAuthProcessFactory';
+import { ITimer } from '../auth/interfaces/ITimer';
+
+// New auth implementations
+import { NodeTimer } from '../auth/util/NodeTimer';
+import { AuthProcess } from '../auth/AuthProcess';
+import { AuthProcessFactory } from '../auth/AuthProcessFactory';
+import { AuthManager } from '../auth/AuthManager';
+
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -68,7 +99,19 @@ export class DependencyContainer {
         const eventHandlingService = new EventHandlingService();
         this.registerService<IEventHandlingService>('eventHandlingService', eventHandlingService);
 
-        // Create the auth service
+        // Create the timer for auth processes
+        const timer = new NodeTimer();
+        this.registerService<ITimer>('timer', timer);
+
+        // Create the auth process factory
+        const authProcessFactory = new AuthProcessFactory(timer);
+        this.registerService<IAuthProcessFactory>('authProcessFactory', authProcessFactory);
+
+        // Create the auth manager
+        const authManager = new AuthManager(authProcessFactory, logger);
+        this.registerService<IAuthManager>('authManager', authManager);
+
+        // Create the legacy auth service (for backward compatibility)
         const authService = new AuthService(logger);
         this.registerService<IAuthService>('authService', authService);
 
@@ -91,11 +134,31 @@ export class DependencyContainer {
         const tcpClient = new TcpClient(logger);
         this.registerService<ITcpClient>('tcpClient', tcpClient);
 
-        // Create the connection manager
+        // Create the connection handler factory
+        const connectionHandlerFactory = new ConcreteConnectionHandlerFactory();
+        this.registerService<IConnectionHandlerFactory>('connectionHandlerFactory', connectionHandlerFactory);
+
+        // Create the network lifecycle manager
+        const lifecycleManager = new BasicNetworkLifecycleManager(udpDiscovery, tcpServer, logger);
+        this.registerService<INetworkLifecycleManager>('lifecycleManager', lifecycleManager);
+
+        // Create the peer connector
+        const peerConnector = new TcpPeerConnector(tcpClient, logger);
+        this.registerService<IPeerConnector>('peerConnector', peerConnector);
+
+        // Create the incoming connection acceptor
+        const incomingAcceptor = new TcpServerAcceptor(tcpServer, logger);
+        this.registerService<IIncomingConnectionAcceptor>('incomingAcceptor', incomingAcceptor);
+
+        // Create the discovery events
+        const discoveryEvents = new UdpDiscoveryEvents(udpDiscovery, logger);
+        this.registerService<IDiscoveryEvents>('discoveryEvents', discoveryEvents);
+
+        // Create the legacy connection manager (for backward compatibility)
         const connectionManager = new ConnectionManager(logger, authService, messageHandler);
         this.registerService<IConnectionManager>('connectionManager', connectionManager);
 
-        // Create the network manager
+        // Create the legacy network manager (for backward compatibility)
         const networkManager = new NetworkManagerRefactored(
             logger,
             udpDiscovery,

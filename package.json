@@ -83,6 +83,7 @@
         "eslint-config-prettier": "^9.1.0",
         "eslint-plugin-import": "^2.31.0",
         "eslint-plugin-jsdoc": "^50.6.9",
+        "eslint-plugin-max-params-no-constructor": "^1.0.1",
         "eslint-plugin-prefer-arrow": "^1.2.3",
         "eslint-plugin-prettier": "^5.2.6",
         "eslint-plugin-sonarjs": "^3.0.2",
@@ -101,11 +102,13 @@
         "test": "jest",
         "lint": "eslint src --ext ts",
         "lint:fix": "eslint src --ext ts --fix",
+        "lint:solid": "eslint src --ext ts --config .eslintrc.json",
         "format": "prettier --write src/**/*.ts webview/**/*.{html,css,js}",
         "format:check": "prettier --check src/**/*.ts webview/**/*.{html,css,js}",
         "package": "vsce package",
         "build": "npm run compile && npm run lint && npm run check-format",
         "check-solid": "node scripts/check-solid.js",
-        "parse-tests": "node scripts/check-solid.js parse-tests"
+        "parse-tests": "node scripts/check-solid.js parse-tests",
+        "verify-solid": "npm run lint:solid && npm run check-solid"
     }
 }

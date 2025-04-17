@@ -15,20 +15,19 @@ class UIEventHandler {
         this._disposables = [];
         this._webviewProvider = webviewProvider;
         this._networkManager = networkManager;
+        this._messageHandlers = new Map([
+            ['sendMessage', (message) => this.handleSendMessage(message.text)],
+            ['clearChat', () => this.handleClearChat()]
+        ]);
     }
     /**
      * Initializes event listeners for the webview.
      */
     initializeEventListeners() {
-        // Listen for messages from the webview
         this._disposables.push(this._webviewProvider.onDidReceiveMessage(message => {
-            switch (message.type) {
-                case 'sendMessage':
-                    this.handleSendMessage(message.text);
-                    break;
-                case 'clearChat':
-                    this.handleClearChat();
-                    break;
+            const handler = this._messageHandlers.get(message.type);
+            if (handler) {
+                handler(message);
             }
         }));
     }
@@ -49,12 +48,8 @@ class UIEventHandler {
      * Disposes of resources.
      */
     dispose() {
-        while (this._disposables.length) {
-            const disposable = this._disposables.pop();
-            if (disposable) {
-                disposable.dispose();
-            }
-        }
+        this._disposables.forEach(d => d.dispose());
+        this._disposables = [];
     }
 }
 exports.UIEventHandler = UIEventHandler;

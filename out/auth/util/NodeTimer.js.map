@@ -1,0 +1,1 @@
+{"version":3,"file":"NodeTimer.js","sourceRoot":"","sources":["../../../src/auth/util/NodeTimer.ts"],"names":[],"mappings":";;;AAEA;;GAEG;AACH,MAAa,SAAS;IAClB,GAAG,CAAC,QAAoB,EAAE,EAAU;QAChC,OAAO,UAAU,CAAC,QAAQ,EAAE,EAAE,CAAC,CAAC;IACpC,CAAC;IAED,KAAK,CAAC,MAA6B;QAC/B,IAAI,MAAM,EAAE;YACR,YAAY,CAAC,MAAM,CAAC,CAAC;SACxB;IACL,CAAC;CACJ;AAVD,8BAUC"}
