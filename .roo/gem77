@@ -1,0 +1,177 @@
+import * as vscode from 'vscode';
+import { FileUI } from '../../fileSharing/fileUI'; // Adjust path
+
+// --- Mocks ---
+jest.mock('vscode', () => ({
+    window: {
+        showInformationMessage: jest.fn(),
+        showErrorMessage: jest.fn(),
+        showQuickPick: jest.fn(),
+        withProgress: jest.fn(),
+    },
+    ProgressLocation: {
+        Notification: 15, // Value for Notification location
+    },
+    // Add other mocks if FileUI uses more vscode APIs
+}), { virtual: true });
+
+const mockVscodeWindow = vscode.window as jest.Mocked<typeof vscode.window>;
+
+describe('FileUI', () => {
+    let fileUI: FileUI;
+    const peerId = 'peer-fileshare';
+    const fileName = 'important.zip';
+    const fileSize = 5 * 1024 * 1024; // 5 MB
+    const transferId = 'transfer-123';
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        fileUI = new FileUI();
+
+        // Mock withProgress to immediately execute the task and return its result
+        mockVscodeWindow.withProgress.mockImplementation(async (options, task) => {
+            const mockProgress = { report: jest.fn() };
+            const mockToken = { isCancellationRequested: false, onCancellationRequested: jest.fn() };
+            // Execute the task, passing the mock progress and token
+            return await task(mockProgress, mockToken);
+        });
+    });
+
+    describe('showFileTransferRequest', () => {
+        it('should show confirmation message and return true if user accepts', async () => {
+            mockVscodeWindow.showInformationMessage.mockResolvedValue('Accept'); // Simulate clicking Accept
+
+            const result = await fileUI.showFileTransferRequest(peerId, fileName, fileSize);
+
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(
+                expect.stringContaining(`${peerId} wants to send you`), // Check basic message structure
+                expect.objectContaining({ modal: true }), // Ensure it's modal
+                'Accept', 'Reject' // Check button labels
+            );
+            expect(result).toBe(true);
+        });
+
+        it('should return false if user rejects', async () => {
+            mockVscodeWindow.showInformationMessage.mockResolvedValue('Reject');
+            const result = await fileUI.showFileTransferRequest(peerId, fileName, fileSize);
+            expect(result).toBe(false);
+        });
+
+        it('should return false if user dismisses the dialog', async () => {
+            mockVscodeWindow.showInformationMessage.mockResolvedValue(undefined);
+            const result = await fileUI.showFileTransferRequest(peerId, fileName, fileSize);
+            expect(result).toBe(false);
+        });
+
+        // Helper to format size (implementation detail, but useful for checking message)
+        const formatSize = (bytes: number): string => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        it('should display file name and formatted size in the request', async () => {
+            mockVscodeWindow.showInformationMessage.mockResolvedValue('Accept');
+            await fileUI.showFileTransferRequest(peerId, fileName, fileSize);
+            const expectedSizeStr = formatSize(fileSize); // e.g., "5.00 MB"
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(
+                expect.stringContaining(`${fileName} (${expectedSizeStr})`),
+                expect.anything(), // options object
+                'Accept', 'Reject'
+            );
+        });
+    });
+
+    describe('showTransferProgress', () => {
+        it('should initiate progress notification', async () => {
+            // This test mainly checks if withProgress is called correctly.
+            // The actual progress reporting happens within the task passed to withProgress.
+            const onCancel = jest.fn();
+            await fileUI.showTransferProgress(transferId, fileName, 'Sending', onCancel);
+
+            expect(mockVscodeWindow.withProgress).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.withProgress).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    location: vscode.ProgressLocation.Notification,
+                    title: expect.stringContaining(`Sending ${fileName}`),
+                    cancellable: true,
+                }),
+                expect.any(Function) // The task function
+            );
+        });
+
+        it('should provide a working update function and cancellation token to the task', async () => {
+            const onCancel = jest.fn();
+            let capturedProgress: vscode.Progress<{ message?: string; increment?: number }> | undefined;
+            let capturedToken: vscode.CancellationToken | undefined;
+
+            // Capture the arguments passed to the task
+            mockVscodeWindow.withProgress.mockImplementation(async (options, task) => {
+                const mockProgress = { report: jest.fn() };
+                const mockToken = { isCancellationRequested: false, onCancellationRequested: jest.fn() };
+                capturedProgress = mockProgress;
+                capturedToken = mockToken;
+                // Simulate cancellation registration
+                mockToken.onCancellationRequested(onCancel);
+                return await task(mockProgress, mockToken);
+            });
+
+            const updateProgress = await fileUI.showTransferProgress(transferId, fileName, 'Receiving', onCancel);
+
+            expect(updateProgress).toBeDefined();
+            expect(capturedProgress).toBeDefined();
+            expect(capturedToken).toBeDefined();
+            expect(capturedToken?.onCancellationRequested).toHaveBeenCalledWith(onCancel);
+
+            // Test the returned update function
+            updateProgress(50); // Simulate 50% progress
+            expect(capturedProgress?.report).toHaveBeenCalledWith({ increment: 50, message: '50%' });
+
+            updateProgress(75); // Simulate 75% progress (should report increment)
+            expect(capturedProgress?.report).toHaveBeenCalledWith({ increment: 25, message: '75%' }); // 75 - 50 = 25
+
+            updateProgress(100); // Simulate 100% progress
+            expect(capturedProgress?.report).toHaveBeenCalledWith({ increment: 25, message: '100%' }); // 100 - 75 = 25
+        });
+    });
+
+    describe('showTransferComplete', () => {
+        it('should show success message for sending', () => {
+            fileUI.showTransferComplete(peerId, fileName, 'Sent');
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(`Successfully sent ${fileName} to ${peerId}.`);
+        });
+
+        it('should show success message for receiving', () => {
+            fileUI.showTransferComplete(peerId, fileName, 'Received');
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(`Successfully received ${fileName} from ${peerId}.`);
+        });
+    });
+
+    describe('showTransferError', () => {
+        it('should show error message with reason', () => {
+            const reason = 'Peer disconnected';
+            fileUI.showTransferError(peerId, fileName, reason);
+            expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledWith(`File transfer error with ${peerId} (${fileName}): ${reason}`);
+        });
+
+        it('should show generic error message if no reason provided', () => {
+            fileUI.showTransferError(peerId, fileName);
+            expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledWith(`File transfer error with ${peerId} (${fileName}): An unknown error occurred.`);
+        });
+    });
+
+    describe('showTransferCancelled', () => {
+        it('should show cancellation message', () => {
+            fileUI.showTransferCancelled(peerId, fileName);
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(`File transfer cancelled with ${peerId} (${fileName}).`);
+        });
+    });
+});

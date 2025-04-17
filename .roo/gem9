@@ -1,0 +1,196 @@
+import { AuthService, AuthState } from '../../auth/AuthService'; // Adjust path
+import { AuthUI } from '../../auth/AuthUI'; // Adjust path
+import { IMessageService } from '../../interfaces/IMessageService'; // Adjust path
+import { AuthProtocol, MessageType } from '../../auth/authProtocol'; // Adjust path
+
+// --- Mocks ---
+// We'll use real AuthService instances but mock the UI and Message Service
+
+// Mock AuthUI - we don't need detailed UI checks here, just prevent errors
+const mockAuthUIInstance: jest.Mocked<AuthUI> = {
+    promptForChallengeResponse: jest.fn(),
+    showAuthSuccess: jest.fn(),
+    showAuthFailure: jest.fn(),
+    showAuthRequestReceived: jest.fn(),
+};
+
+// Mock the AuthUI constructor
+jest.mock('../../auth/AuthUI', () => ({
+    AuthUI: jest.fn().mockImplementation(() => mockAuthUIInstance)
+}));
+
+// Mock Message Service - Simulates the network/peer connection
+// This needs to route messages between the two AuthService instances
+class MockPeerMessageService implements IMessageService {
+    private serviceA: AuthService | null = null;
+    private serviceB: AuthService | null = null;
+    private callbackA: ((senderId: string, message: any) => void) | null = null;
+    private callbackB: ((senderId: string, message: any) => void) | null = null;
+
+    registerService(peerId: 'peerA' | 'peerB', service: AuthService) {
+        if (peerId === 'peerA') this.serviceA = service;
+        else this.serviceB = service;
+    }
+
+    onMessage(callback: (senderId: string, message: any) => void): void {
+        // Determine which service is registering the callback
+        // This is a simplification; a real implementation might need more context
+        if (!this.callbackA) this.callbackA = callback;
+        else if (!this.callbackB) this.callbackB = callback;
+    }
+
+    sendMessage(recipientId: string, message: any): void {
+        // Route the message to the *other* service's callback
+        const senderId = recipientId === 'peerB' ? 'peerA' : 'peerB';
+        const targetCallback = recipientId === 'peerB' ? this.callbackB : this.callbackA;
+
+        if (targetCallback) {
+            // Simulate async network delay
+            setTimeout(() => targetCallback(senderId, message), 0);
+        } else {
+            console.warn(`MockMessageService: No callback registered for ${recipientId}`);
+        }
+    }
+
+    // Add other methods if needed (e.g., disconnect, offMessage)
+}
+
+// --- Test Suite ---
+describe('AuthService Integration', () => {
+    let serviceA: AuthService;
+    let serviceB: AuthService;
+    let messageBus: MockPeerMessageService;
+    const peerAId = 'peerA';
+    const peerBId = 'peerB';
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        jest.useFakeTimers(); // Use fake timers for controlling async message delivery
+
+        messageBus = new MockPeerMessageService();
+
+        // Create two AuthService instances using the same message bus
+        serviceA = new AuthService(mockAuthUIInstance, messageBus);
+        serviceB = new AuthService(mockAuthUIInstance, messageBus);
+
+        // Register services with the bus (needed for routing)
+        messageBus.registerService('peerA', serviceA);
+        messageBus.registerService('peerB', serviceB);
+
+        // Ensure onMessage callbacks were registered
+        expect(messageBus.callbackA).toBeDefined();
+        expect(messageBus.callbackB).toBeDefined();
+    });
+
+    afterEach(() => {
+        jest.useRealTimers(); // Restore real timers
+    });
+
+    it('should complete a full authentication handshake successfully', async () => {
+        // --- Initiation (A -> B) ---
+        const authPromiseA = serviceA.initiateAuthentication(peerBId);
+        expect(serviceA.getState()).toBe(AuthState.AwaitingResponse);
+
+        // Run timers to deliver AUTH_REQ to B
+        await jest.runAllTimersAsync();
+
+        // --- Challenge Received (B) ---
+        expect(serviceB.getState()).toBe(AuthState.ChallengeReceived);
+        expect(serviceB.getTargetPeerId()).toBe(peerAId);
+        expect(mockAuthUIInstance.showAuthRequestReceived).toHaveBeenCalledWith(peerAId);
+        expect(mockAuthUIInstance.promptForChallengeResponse).toHaveBeenCalledTimes(1);
+        const challenge = mockAuthUIInstance.promptForChallengeResponse.mock.calls[0][0];
+
+        // --- Response (B -> A) ---
+        // Simulate B's user providing the correct response
+        mockAuthUIInstance.promptForChallengeResponse.mockResolvedValue(challenge);
+        // Need to wait for the internal async handler after prompt resolves
+        await jest.runAllTimersAsync();
+        expect(serviceB.getState()).toBe(AuthState.AwaitingConfirmation);
+
+        // Run timers to deliver AUTH_RESP to A
+        await jest.runAllTimersAsync();
+
+        // --- Verification (A) ---
+        // Service A receives correct response, should send AUTH_SUCCESS back
+        expect(serviceA.getState()).toBe(AuthState.Authenticated); // A is now authenticated
+        expect(mockAuthUIInstance.showAuthSuccess).toHaveBeenCalledWith(peerBId);
+        await expect(authPromiseA).resolves.toBeUndefined(); // Initiator's promise resolves
+
+        // Run timers to deliver AUTH_SUCCESS to B
+        await jest.runAllTimersAsync();
+
+        // --- Confirmation (B) ---
+        expect(serviceB.getState()).toBe(AuthState.Authenticated); // B is now authenticated
+        expect(mockAuthUIInstance.showAuthSuccess).toHaveBeenCalledWith(peerAId);
+        expect(mockAuthUIInstance.showAuthSuccess).toHaveBeenCalledTimes(2); // Once for A, once for B
+    });
+
+    it('should fail authentication if initiator (A) receives incorrect response', async () => {
+        const authPromiseA = serviceA.initiateAuthentication(peerBId);
+        await jest.runAllTimersAsync(); // Deliver AUTH_REQ to B
+
+        expect(serviceB.getState()).toBe(AuthState.ChallengeReceived);
+        const challenge = mockAuthUIInstance.promptForChallengeResponse.mock.calls[0][0];
+
+        // Simulate B's user providing *incorrect* response
+        mockAuthUIInstance.promptForChallengeResponse.mockResolvedValue("WrongAnimal");
+        await jest.runAllTimersAsync(); // Let B process the wrong answer and send AUTH_FAIL
+        expect(serviceB.getState()).toBe(AuthState.Idle); // B resets after sending fail
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledWith(peerAId, 'Incorrect response provided');
+
+        // Run timers to deliver AUTH_FAIL to A
+        await jest.runAllTimersAsync();
+
+        // --- Failure Handling (A) ---
+        expect(serviceA.getState()).toBe(AuthState.Idle); // A resets on receiving fail
+        await expect(authPromiseA).rejects.toThrow(/Authentication failed/); // Initiator's promise rejects
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledWith(peerBId, expect.stringContaining('Peer rejected') /* Or specific reason if sent */);
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledTimes(2); // Once for B, once for A
+    });
+
+    it('should fail authentication if responder (B) receives AUTH_FAIL after sending response', async () => {
+        const authPromiseA = serviceA.initiateAuthentication(peerBId);
+        await jest.runAllTimersAsync(); // Deliver AUTH_REQ to B
+
+        expect(serviceB.getState()).toBe(AuthState.ChallengeReceived);
+        const challenge = mockAuthUIInstance.promptForChallengeResponse.mock.calls[0][0];
+
+        // Simulate B's user providing correct response
+        mockAuthUIInstance.promptForChallengeResponse.mockResolvedValue(challenge);
+        await jest.runAllTimersAsync(); // Let B process and send AUTH_RESP
+        expect(serviceB.getState()).toBe(AuthState.AwaitingConfirmation);
+
+        // --- Sabotage: Modify A to reject the (correct) response ---
+        // (This simulates A deciding the response is invalid for some reason)
+        const originalSendMessage = messageBus.sendMessage;
+        messageBus.sendMessage = (recipientId, message) => {
+            if (recipientId === peerBId && message.type === MessageType.AUTH_SUCCESS) {
+                // Instead of sending SUCCESS, A sends FAIL
+                originalSendMessage(recipientId, AuthProtocol.createAuthFailMessage("Verification logic failed"));
+            } else {
+                originalSendMessage(recipientId, message);
+            }
+        };
+
+        // Run timers to deliver AUTH_RESP to A, A processes it (incorrectly sending FAIL)
+        await jest.runAllTimersAsync();
+
+        // --- Failure Handling (A) ---
+        // A thinks it failed, even though B sent correct response initially
+        expect(serviceA.getState()).toBe(AuthState.Idle);
+        await expect(authPromiseA).rejects.toThrow(/Invalid response/); // A rejects its own promise
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledWith(peerBId, 'Invalid response');
+
+        // Run timers to deliver the sabotaged AUTH_FAIL to B
+        await jest.runAllTimersAsync();
+
+        // --- Failure Handling (B) ---
+        expect(serviceB.getState()).toBe(AuthState.Idle); // B resets on receiving fail
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledWith(peerAId, "Verification logic failed");
+        expect(mockAuthUIInstance.showAuthFailure).toHaveBeenCalledTimes(2); // Once for A, once for B
+    });
+
+    // TODO: Add integration test for cancellation (e.g., B cancels the prompt)
+    // TODO: Add integration test for concurrent requests (A->B and B->A simultaneously) - should likely fail one or both.
+});

@@ -1,0 +1,111 @@
+{
+    "name": "chattymcchatface",
+    "displayName": "ChattyMcChatface",
+    "description": "A VS Code extension for peer-to-peer chat within the editor",
+    "version": "0.0.1",
+    "publisher": "vscode-samples",
+    "engines": {
+        "vscode": "^1.60.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "chattymcchatface.helloWorld",
+                "title": "ChattyMcChatface: Hello World"
+            },
+            {
+                "command": "chattymcchatface.sendTestMessage",
+                "title": "ChattyMcChatface: Send Test Message"
+            },
+            {
+                "command": "chattymcchatface.startDiscovery",
+                "title": "ChattyMcChatface: Start Network Discovery"
+            },
+            {
+                "command": "chattymcchatface.stopDiscovery",
+                "title": "ChattyMcChatface: Stop Network Discovery"
+            },
+            {
+                "command": "chattymcchatface.openChat",
+                "title": "ChattyMcChatface: Open Chat Panel"
+            },
+            {
+                "command": "chattymcchatface.clearChat",
+                "title": "ChattyMcChatface: Clear Chat"
+            },
+            {
+                "command": "chattymcchatface.extractDuplicateCode",
+                "title": "ChattyMcChatface: Extract Duplicate Code"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "chattymcchatface",
+                    "title": "ChattyMcChatface",
+                    "icon": "$(comment-discussion)"
+                }
+            ]
+        },
+        "views": {
+            "chattymcchatface": [
+                {
+                    "type": "webview",
+                    "id": "chattymcchatface.chatView",
+                    "name": "Chat"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "chattymcchatface.clearChat",
+                    "when": "view == chattymcchatface.chatView",
+                    "group": "navigation"
+                }
+            ]
+        }
+    },
+    "devDependencies": {
+        "@types/jest": "^29.5.14",
+        "@types/node": "^16.11.7",
+        "@types/vscode": "^1.60.0",
+        "@typescript-eslint/eslint-plugin": "^8.30.0",
+        "@typescript-eslint/parser": "^8.30.0",
+        "eslint": "^9.24.0",
+        "eslint-config-prettier": "^9.1.0",
+        "eslint-plugin-import": "^2.31.0",
+        "eslint-plugin-jsdoc": "^50.6.9",
+        "eslint-plugin-prefer-arrow": "^1.2.3",
+        "eslint-plugin-prettier": "^5.2.6",
+        "eslint-plugin-sonarjs": "^3.0.2",
+        "husky": "^9.1.7",
+        "jest": "^29.7.0",
+        "lint-staged": "^15.5.1",
+        "prettier": "^3.5.3",
+        "ts-jest": "^29.3.2",
+        "typescript": "^4.5.5"
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile",
+        "test": "jest",
+        "lint": "eslint src --ext ts",
+        "lint:fix": "eslint src --ext ts --fix",
+        "format": "prettier --write src/**/*.ts webview/**/*.{html,css,js}",
+        "format:check": "prettier --check src/**/*.ts webview/**/*.{html,css,js}",
+        "package": "vsce package",
+        "build": "npm run compile && npm run lint && npm run check-format",
+        "check-solid": "node scripts/check-solid.js",
+        "parse-tests": "node scripts/check-solid.js parse-tests"
+    }
+}

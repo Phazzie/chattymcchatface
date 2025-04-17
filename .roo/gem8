@@ -1,0 +1,245 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
+// --- System Components (Import actual implementations or simplified versions) ---
+// It's often better to test against the actual classes if possible, mocking only external boundaries
+import { FileService } from '../../fileSharing/fileService'; // Adjust path
+import { FileUI } from '../../fileSharing/fileUI'; // Adjust path
+import { FileTransferProtocol, MessageType } from '../../fileSharing/fileTransferProtocol'; // Adjust path
+// Assume a NetworkManager interface/class exists for sending messages
+import { INetworkManager } from '../../network/INetworkManager'; // Adjust path
+// Assume a coordinating class exists, let's call it FileTransferCoordinator
+import { FileTransferCoordinator } from '../../fileSharing/fileTransferCoordinator'; // Adjust path
+
+// --- Mocks ---
+jest.mock('fs/promises');
+jest.mock('vscode', () => ({
+    window: {
+        showOpenDialog: jest.fn(),
+        showSaveDialog: jest.fn(),
+        showInformationMessage: jest.fn(),
+        showErrorMessage: jest.fn(),
+        withProgress: jest.fn((options, task) => {
+            // Simplified mock: run task immediately, provide mock progress/token
+            const mockProgress = { report: jest.fn() };
+            const mockToken = { isCancellationRequested: false, onCancellationRequested: jest.fn() };
+            return task(mockProgress, mockToken);
+        }),
+    },
+    Uri: {
+        file: jest.fn((filePath) => ({ fsPath: filePath, path: filePath, scheme: 'file' })),
+    },
+    ProgressLocation: {
+        Notification: 15,
+    },
+}), { virtual: true });
+
+const mockFs = fs as jest.Mocked<typeof fs>;
+const mockVscodeWindow = vscode.window as jest.Mocked<typeof vscode.window>;
+const mockVscodeUri = vscode.Uri as jest.Mocked<typeof vscode.Uri>;
+
+// Mock Network Manager - Simulates sending messages between peers
+class MockNetworkManager implements INetworkManager {
+    peers: Map<string, { coordinator: FileTransferCoordinator, messageCallback: (senderId: string, message: any) => void }> = new Map();
+
+    register(peerId: string, coordinator: FileTransferCoordinator, messageCallback: (senderId: string, message: any) => void) {
+        this.peers.set(peerId, { coordinator, messageCallback });
+    }
+
+    sendMessage(recipientId: string, message: any): void {
+        const senderId = [...this.peers.entries()].find(([id, data]) => data.coordinator !== this.peers.get(recipientId)?.coordinator)?.[0] ?? 'unknown';
+        const recipient = this.peers.get(recipientId);
+        if (recipient) {
+            console.log(`MockNetwork: Sending ${message.type} from ${senderId} to ${recipientId}`);
+            // Simulate async network delay
+            setTimeout(() => {
+                recipient.messageCallback(senderId, message);
+            }, 0);
+        } else {
+            console.warn(`MockNetwork: Recipient ${recipientId} not found.`);
+        }
+    }
+
+    // Implement other INetworkManager methods if needed (e.g., broadcast, onDisconnect)
+    onMessage(callback: (senderId: string, message: any) => void): void {
+        // This might be handled per-coordinator registration in this mock setup
+    }
+}
+
+// --- Test Suite ---
+describe('File Sharing Integration', () => {
+    let senderCoordinator: FileTransferCoordinator;
+    let receiverCoordinator: FileTransferCoordinator;
+    let senderFileService: FileService;
+    let receiverFileService: FileService;
+    let senderUI: FileUI;
+    let receiverUI: FileUI;
+    let networkManager: MockNetworkManager;
+
+    const senderPeerId = 'sender-peer';
+    const receiverPeerId = 'receiver-peer';
+    const testFileName = 'integration-test.dat';
+    const testFileSize = 2048; // Small size for testing chunking
+    const testFileContent = Buffer.alloc(testFileSize, 'x'); // Fill with 'x'
+    const chunkSize = 512; // Example chunk size
+
+    let senderTempPath: string;
+    let receiverTempPath: string;
+
+    beforeEach(async () => {
+        jest.clearAllMocks();
+        jest.useFakeTimers();
+
+        // Setup temp dirs and mock file
+        const senderTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sender-'));
+        const receiverTempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'receiver-'));
+        senderTempPath = path.join(senderTempDir, testFileName);
+        receiverTempPath = path.join(receiverTempDir, testFileName);
+        await fs.writeFile(senderTempPath, testFileContent); // Create the mock file to send
+
+        // Mock Uri.file behavior
+        mockVscodeUri.file.mockImplementation((p) => ({
+            fsPath: p, path: p, scheme: 'file', toString: () => `file://${p}`
+        } as any));
+
+        // Mock file system operations used by FileService
+        mockFs.stat.mockResolvedValue({ size: testFileSize } as fs.Stats);
+        const mockSenderHandle = { read: jest.fn(), close: jest.fn().mockResolvedValue(undefined) } as any;
+        const mockReceiverHandle = { write: jest.fn(), close: jest.fn().mockResolvedValue(undefined) } as any;
+        mockFs.open.mockImplementation(async (p, mode) => {
+            if (p === senderTempPath && mode === 'r') return mockSenderHandle;
+            if (p === receiverTempPath && (mode === 'a' || mode === 'w')) return mockReceiverHandle; // Adjust mode based on impl.
+            throw new Error(`Unexpected fs.open call: ${p} ${mode}`);
+        });
+        // Mock chunk reading
+        let senderBytesRead = 0;
+        mockSenderHandle.read.mockImplementation(async (buffer: Buffer, offset: number, length: number, position: number | null) => {
+            const start = position ?? senderBytesRead;
+            const end = Math.min(start + length, testFileContent.length);
+            const bytesToRead = end - start;
+            if (bytesToRead <= 0) return { bytesRead: 0, buffer };
+            testFileContent.copy(buffer, offset, start, end);
+            senderBytesRead = end;
+            return { bytesRead: bytesToRead, buffer };
+        });
+        // Mock chunk writing
+        mockReceiverHandle.write.mockImplementation(async (buffer: Buffer, offset: number, length: number, position: number | null) => {
+            // In a real test, you might accumulate written data to verify later
+            return { bytesWritten: length, buffer };
+        });
+
+
+        // Instantiate components
+        networkManager = new MockNetworkManager();
+        senderFileService = new FileService();
+        receiverFileService = new FileService(); // Separate instance for receiver
+        senderUI = new FileUI();
+        receiverUI = new FileUI(); // Separate instance
+
+        // Create Coordinators (assuming constructor signature)
+        senderCoordinator = new FileTransferCoordinator(senderPeerId, networkManager, senderFileService, senderUI, { chunkSize });
+        receiverCoordinator = new FileTransferCoordinator(receiverPeerId, networkManager, receiverFileService, receiverUI, { chunkSize });
+
+        // Register message handlers with coordinators
+        networkManager.register(senderPeerId, senderCoordinator, senderCoordinator.handleMessage.bind(senderCoordinator));
+        networkManager.register(receiverPeerId, receiverCoordinator, receiverCoordinator.handleMessage.bind(receiverCoordinator));
+    });
+
+    afterEach(async () => {
+        jest.useRealTimers();
+        // Clean up temp directories (implement fs.rm if needed or handle errors)
+        // await fs.rm(path.dirname(senderTempPath), { recursive: true, force: true });
+        // await fs.rm(path.dirname(receiverTempPath), { recursive: true, force: true });
+    });
+
+    it('should complete a full file transfer successfully', async () => {
+        // --- 1. Sender Initiates ---
+        mockVscodeWindow.showOpenDialog.mockResolvedValue([vscode.Uri.file(senderTempPath)]);
+        const initiatePromise = senderCoordinator.initiateFileTransfer(receiverPeerId);
+
+        // --- 2. Receiver Gets Request ---
+        await jest.runAllTimersAsync(); // Deliver FILE_TRANSFER_REQUEST
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1); // Receiver's UI shows request
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledWith(
+            expect.stringContaining(senderPeerId), // Check sender ID
+            expect.anything(), 'Accept', 'Reject'
+        );
+
+        // --- 3. Receiver Accepts ---
+        mockVscodeWindow.showInformationMessage.mockResolvedValue('Accept'); // Simulate Accept click
+        mockVscodeWindow.showSaveDialog.mockResolvedValue(vscode.Uri.file(receiverTempPath)); // Simulate choosing save location
+        await jest.runAllTimersAsync(); // Allow receiver to process accept and send ACCEPT message
+
+        // --- 4. Sender Gets Acceptance & Starts Sending Chunks ---
+        await jest.runAllTimersAsync(); // Deliver FILE_TRANSFER_ACCEPT to sender
+        expect(mockVscodeWindow.withProgress).toHaveBeenCalledTimes(1); // Sender shows progress
+
+        // --- 5. Chunk Transfer ---
+        const totalChunks = Math.ceil(testFileSize / chunkSize); // 2048 / 512 = 4
+        for (let i = 0; i < totalChunks; i++) {
+            await jest.runAllTimersAsync(); // Deliver FILE_CHUNK i to receiver
+            // Optional: Check receiver progress update?
+            // Optional: Check receiver writing chunk? mockFs.open -> handle.write called
+        }
+        // Check that the correct number of chunks were attempted to be read
+        expect(mockFs.open.mock.results[0].value.read).toHaveBeenCalledTimes(totalChunks);
+
+
+        // --- 6. Sender Sends Completion ---
+        await jest.runAllTimersAsync(); // Deliver FILE_TRANSFER_COMPLETE to receiver
+
+        // --- 7. Receiver Finishes & Shows Success ---
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(2); // Receiver shows completion message
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenLastCalledWith(
+            expect.stringContaining(`Successfully received ${testFileName}`)
+        );
+        // Check receiver file handle closed
+        expect(mockFs.open.mock.results[1].value.close).toHaveBeenCalled();
+
+
+        // --- 8. Sender Finishes & Shows Success ---
+        await initiatePromise; // The initial promise should resolve now
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(3); // Sender shows completion message
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenLastCalledWith(
+            expect.stringContaining(`Successfully sent ${testFileName}`)
+        );
+        // Check sender file handle closed
+        expect(mockFs.open.mock.results[0].value.close).toHaveBeenCalled();
+    });
+
+    it('should handle receiver rejecting the transfer', async () => {
+        // --- 1. Sender Initiates ---
+        mockVscodeWindow.showOpenDialog.mockResolvedValue([vscode.Uri.file(senderTempPath)]);
+        const initiatePromise = senderCoordinator.initiateFileTransfer(receiverPeerId);
+
+        // --- 2. Receiver Gets Request ---
+        await jest.runAllTimersAsync();
+        expect(mockVscodeWindow.showInformationMessage).toHaveBeenCalledTimes(1);
+
+        // --- 3. Receiver Rejects ---
+        mockVscodeWindow.showInformationMessage.mockResolvedValue('Reject'); // Simulate Reject click
+        await jest.runAllTimersAsync(); // Allow receiver to process reject and send REJECT message
+
+        // --- 4. Sender Gets Rejection ---
+        await jest.runAllTimersAsync(); // Deliver FILE_TRANSFER_REJECT to sender
+        await expect(initiatePromise).rejects.toThrow(/rejected/i); // Initial promise should reject
+        expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledTimes(1); // Sender shows error
+        expect(mockVscodeWindow.showErrorMessage).toHaveBeenCalledWith(
+            expect.stringContaining('rejected the file transfer')
+        );
+
+        // Ensure no progress bar was shown
+        expect(mockVscodeWindow.withProgress).not.toHaveBeenCalled();
+    });
+
+    // TODO: Add tests for:
+    // - Cancellation by sender during transfer
+    // - Cancellation by receiver during transfer
+    // - Network error during chunk transfer
+    // - File read error on sender side
+    // - File write error on receiver side
+    // - Handling concurrent transfers (if supported)
+});

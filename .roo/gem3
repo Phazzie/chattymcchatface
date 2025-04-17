@@ -1,0 +1,304 @@
+import { AuthService, AuthState } from '../../auth/AuthService'; // Adjust path
+import { AuthUI } from '../../auth/AuthUI'; // Adjust path
+import { IMessageService } from '../../interfaces/IMessageService'; // Adjust path
+import { AuthProtocol, MessageType } from '../../auth/authProtocol'; // Adjust path
+
+// --- Mocks ---
+// Mock AuthUI fully
+const mockAuthUI: jest.Mocked<AuthUI> = {
+    promptForChallengeResponse: jest.fn(),
+    showAuthSuccess: jest.fn(),
+    showAuthFailure: jest.fn(),
+    showAuthRequestReceived: jest.fn(),
+};
+
+// Mock Message Service
+const mockMessageService: jest.Mocked<IMessageService> = {
+    sendMessage: jest.fn(),
+    onMessage: jest.fn(),
+    // Add other methods if AuthService uses them (e.g., offMessage, disconnect)
+};
+
+// Mock the AuthUI constructor if needed, or provide the mock instance
+jest.mock('../../auth/AuthUI', () => {
+    // This allows us to instantiate AuthService with the mock
+    return {
+        AuthUI: jest.fn().mockImplementation(() => mockAuthUI)
+    };
+});
+
+// --- Test Suite ---
+describe('AuthService', () => {
+    let authService: AuthService;
+    let capturedOnMessageCallback: (senderId: string, message: any) => void;
+
+    // Helper to simulate receiving a message
+    const simulateMessage = (senderId: string, message: any) => {
+        if (!capturedOnMessageCallback) {
+            throw new Error("onMessage callback not captured. Did AuthService constructor run?");
+        }
+        capturedOnMessageCallback(senderId, message);
+    };
+
+    beforeEach(() => {
+        jest.clearAllMocks(); // Reset mocks for isolation
+
+        // Capture the callback registered by AuthService
+        mockMessageService.onMessage.mockImplementation((callback) => {
+            capturedOnMessageCallback = callback;
+        });
+
+        // Instantiate the service with mocks
+        // Assuming AuthService takes AuthUI and IMessageService instances
+        authService = new AuthService(mockAuthUI, mockMessageService);
+
+        // Verify constructor behavior (optional but good practice)
+        expect(mockMessageService.onMessage).toHaveBeenCalledTimes(1);
+    });
+
+    // --- State ---
+    it('should initialize in Idle state', () => {
+        expect(authService.getState()).toBe(AuthState.Idle);
+        expect(authService.getTargetPeerId()).toBeNull();
+    });
+
+    // --- Initiating Authentication ---
+    describe('initiateAuthentication', () => {
+        const targetPeerId = 'peer-to-auth';
+
+        it('should send AUTH_REQ, set state to AwaitingResponse, and store peerId', async () => {
+            const authPromise = authService.initiateAuthentication(targetPeerId);
+
+            expect(authService.getState()).toBe(AuthState.AwaitingResponse);
+            expect(authService.getTargetPeerId()).toBe(targetPeerId);
+
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1);
+            const [sentPeerId, sentMessage] = mockMessageService.sendMessage.mock.calls[0];
+            expect(sentPeerId).toBe(targetPeerId);
+            expect(sentMessage.type).toBe(MessageType.AUTH_REQ);
+            expect(sentMessage.payload.challenge).toEqual(expect.any(String)); // Should generate a challenge
+            expect(sentMessage.payload.challenge.length).toBeGreaterThan(0); // Basic check
+
+            // Simulate success later to allow promise check
+            const challenge = sentMessage.payload.challenge;
+            simulateMessage(targetPeerId, AuthProtocol.createAuthSuccessMessage(challenge));
+            await expect(authPromise).resolves.toBeUndefined(); // Promise should resolve on success
+        });
+
+        it('should reject if already authenticating (not Idle)', async () => {
+            authService.initiateAuthentication('first-peer'); // Start one auth process
+            await expect(authService.initiateAuthentication('second-peer'))
+                .rejects.toThrow('Authentication already in progress');
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1); // Only first req sent
+        });
+
+        it('should reject and show failure if peer sends AUTH_FAIL', async () => {
+            const authPromise = authService.initiateAuthentication(targetPeerId);
+            simulateMessage(targetPeerId, AuthProtocol.createAuthFailMessage('Peer busy'));
+
+            await expect(authPromise).rejects.toThrow('Authentication failed: Peer busy');
+            expect(authService.getState()).toBe(AuthState.Idle);
+            expect(mockAuthUI.showAuthFailure).toHaveBeenCalledWith(targetPeerId, 'Peer busy');
+        });
+
+        it('should reject and show failure if peer sends incorrect AUTH_RESP', async () => {
+            const authPromise = authService.initiateAuthentication(targetPeerId);
+            const challenge = mockMessageService.sendMessage.mock.calls[0][1].payload.challenge;
+            simulateMessage(targetPeerId, AuthProtocol.createAuthResponseMessage('WrongAnswer'));
+
+            await expect(authPromise).rejects.toThrow('Authentication failed: Invalid response');
+            expect(authService.getState()).toBe(AuthState.Idle);
+            expect(mockAuthUI.showAuthFailure).toHaveBeenCalledWith(targetPeerId, 'Invalid response');
+            // Should also send AUTH_FAIL back
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(2); // REQ + FAIL
+            const [, failMsg] = mockMessageService.sendMessage.mock.calls[1];
+            expect(failMsg.type).toBe(MessageType.AUTH_FAIL);
+        });
+
+        it('should resolve and show success if peer sends correct AUTH_RESP', async () => {
+            const authPromise = authService.initiateAuthentication(targetPeerId);
+            const challenge = mockMessageService.sendMessage.mock.calls[0][1].payload.challenge;
+            simulateMessage(targetPeerId, AuthProtocol.createAuthResponseMessage(challenge));
+
+            await expect(authPromise).resolves.toBeUndefined();
+            expect(authService.getState()).toBe(AuthState.Authenticated);
+            expect(mockAuthUI.showAuthSuccess).toHaveBeenCalledWith(targetPeerId);
+            // Should also send AUTH_SUCCESS back
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(2); // REQ + SUCCESS
+            const [, successMsg] = mockMessageService.sendMessage.mock.calls[1];
+            expect(successMsg.type).toBe(MessageType.AUTH_SUCCESS);
+            expect(successMsg.payload.challenge).toBe(challenge);
+        });
+
+        // TODO: Add test for timeout if implemented
+    });
+
+    // --- Receiving Authentication Request ---
+    describe('onMessage AUTH_REQ', () => {
+        const requestingPeerId = 'peer-requester';
+        const challenge = 'Wombat';
+        const authReqMsg = AuthProtocol.createAuthRequestMessage(challenge);
+
+        it('should ignore AUTH_REQ if not in Idle state', () => {
+            authService.initiateAuthentication('other-peer'); // Make state non-idle
+            simulateMessage(requestingPeerId, authReqMsg);
+
+            expect(mockAuthUI.showAuthRequestReceived).not.toHaveBeenCalled();
+            expect(mockAuthUI.promptForChallengeResponse).not.toHaveBeenCalled();
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1); // Only the initial one
+            expect(authService.getState()).toBe(AuthState.AwaitingResponse); // State unchanged
+        });
+
+        it('should show request, prompt user, and transition state if Idle', async () => {
+            mockAuthUI.promptForChallengeResponse.mockResolvedValue(undefined); // Simulate cancel initially
+            simulateMessage(requestingPeerId, authReqMsg);
+
+            expect(authService.getState()).toBe(AuthState.ChallengeReceived);
+            expect(authService.getTargetPeerId()).toBe(requestingPeerId);
+            expect(mockAuthUI.showAuthRequestReceived).toHaveBeenCalledWith(requestingPeerId);
+            expect(mockAuthUI.promptForChallengeResponse).toHaveBeenCalledWith(challenge);
+        });
+
+        it('should send AUTH_RESP and transition to AwaitingConfirmation on correct response', async () => {
+            mockAuthUI.promptForChallengeResponse.mockResolvedValue(challenge); // Correct response
+            simulateMessage(requestingPeerId, authReqMsg);
+
+            // Need to wait for the async prompt handler to complete
+            await jest.runAllTimersAsync(); // Or use await flushPromises(); if configured
+
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1);
+            const [sentPeerId, sentMessage] = mockMessageService.sendMessage.mock.calls[0];
+            expect(sentPeerId).toBe(requestingPeerId);
+            expect(sentMessage).toEqual(AuthProtocol.createAuthResponseMessage(challenge));
+            expect(authService.getState()).toBe(AuthState.AwaitingConfirmation);
+        });
+
+        it('should send AUTH_FAIL and reset state on incorrect response', async () => {
+            mockAuthUI.promptForChallengeResponse.mockResolvedValue('WrongAnimal'); // Incorrect
+            simulateMessage(requestingPeerId, authReqMsg);
+            await jest.runAllTimersAsync();
+
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1);
+            const [sentPeerId, sentMessage] = mockMessageService.sendMessage.mock.calls[0];
+            expect(sentPeerId).toBe(requestingPeerId);
+            expect(sentMessage.type).toEqual(MessageType.AUTH_FAIL);
+            expect(authService.getState()).toBe(AuthState.Idle);
+            expect(mockAuthUI.showAuthFailure).toHaveBeenCalledWith(requestingPeerId, 'Incorrect response provided');
+        });
+
+        it('should send AUTH_FAIL and reset state if user cancels prompt', async () => {
+            mockAuthUI.promptForChallengeResponse.mockResolvedValue(undefined); // Cancelled
+            simulateMessage(requestingPeerId, authReqMsg);
+            await jest.runAllTimersAsync();
+
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1);
+            const [sentPeerId, sentMessage] = mockMessageService.sendMessage.mock.calls[0];
+            expect(sentPeerId).toBe(requestingPeerId);
+            expect(sentMessage.type).toEqual(MessageType.AUTH_FAIL);
+            expect(authService.getState()).toBe(AuthState.Idle);
+            // Optionally show failure on cancel, or maybe not. Depends on desired UX.
+            // expect(mockAuthUI.showAuthFailure).toHaveBeenCalledWith(requestingPeerId, 'Authentication cancelled');
+        });
+    });
+
+    // --- Handling Confirmation ---
+    describe('onMessage AUTH_SUCCESS / AUTH_FAIL (Awaiting Confirmation)', () => {
+        const requestingPeerId = 'peer-requester';
+        const challenge = 'Platypus';
+
+        beforeEach(async () => {
+            // Setup: Receive AUTH_REQ, user responds correctly -> AwaitingConfirmation
+            const authReqMsg = AuthProtocol.createAuthRequestMessage(challenge);
+            mockAuthUI.promptForChallengeResponse.mockResolvedValue(challenge);
+            simulateMessage(requestingPeerId, authReqMsg);
+            await jest.runAllTimersAsync();
+            expect(authService.getState()).toBe(AuthState.AwaitingConfirmation);
+            expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1); // AUTH_RESP sent
+        });
+
+        it('should transition to Authenticated on AUTH_SUCCESS with matching challenge', () => {
+            const successMsg = AuthProtocol.createAuthSuccessMessage(challenge);
+            simulateMessage(requestingPeerId, successMsg);
+
+            expect(authService.getState()).toBe(AuthState.Authenticated);
+            expect(authService.getTargetPeerId()).toBe(requestingPeerId);
+            expect(mockAuthUI.showAuthSuccess).toHaveBeenCalledWith(requestingPeerId);
+        });
+
+        it('should ignore AUTH_SUCCESS if challenge does not match', () => {
+            const successMsg = AuthProtocol.createAuthSuccessMessage("WrongChallenge");
+            simulateMessage(requestingPeerId, successMsg);
+
+            expect(authService.getState()).toBe(AuthState.AwaitingConfirmation); // State unchanged
+            expect(mockAuthUI.showAuthSuccess).not.toHaveBeenCalled();
+            // Maybe log a warning here?
+        });
+
+        it('should transition to Idle on AUTH_FAIL', () => {
+            const failMsg = AuthProtocol.createAuthFailMessage('Peer validation failed');
+            simulateMessage(requestingPeerId, failMsg);
+
+            expect(authService.getState()).toBe(AuthState.Idle);
+            expect(authService.getTargetPeerId()).toBeNull();
+            expect(mockAuthUI.showAuthFailure).toHaveBeenCalledWith(requestingPeerId, 'Peer validation failed');
+        });
+
+        it('should ignore confirmations from unexpected peers', () => {
+            const successMsg = AuthProtocol.createAuthSuccessMessage(challenge);
+            simulateMessage('another-peer-id', successMsg); // Message from wrong peer
+
+            expect(authService.getState()).toBe(AuthState.AwaitingConfirmation); // State unchanged
+            expect(mockAuthUI.showAuthSuccess).not.toHaveBeenCalled();
+        });
+    });
+
+    // --- Reset ---
+    describe('resetAuthentication', () => {
+        it('should reset state to Idle and clear peerId', () => {
+            // Put service in a non-idle state
+            authService.initiateAuthentication('some-peer');
+            expect(authService.getState()).not.toBe(AuthState.Idle);
+
+            authService.resetAuthentication();
+
+            expect(authService.getState()).toBe(AuthState.Idle);
+            expect(authService.getTargetPeerId()).toBeNull();
+            // Should potentially cancel ongoing promises/timeouts if applicable
+        });
+    });
+
+    // --- Edge Cases ---
+    it('should ignore messages not relevant to the current state or peer', () => {
+        // 1. Send AUTH_REQ while Idle (handled above)
+        // 2. Send AUTH_RESP while Idle
+        simulateMessage('peer-1', AuthProtocol.createAuthResponseMessage('response'));
+        expect(authService.getState()).toBe(AuthState.Idle);
+        expect(mockMessageService.sendMessage).not.toHaveBeenCalled();
+
+        // 3. Send AUTH_SUCCESS while Idle
+        simulateMessage('peer-1', AuthProtocol.createAuthSuccessMessage('challenge'));
+        expect(authService.getState()).toBe(AuthState.Idle);
+
+        // 4. Send AUTH_FAIL while Idle
+        simulateMessage('peer-1', AuthProtocol.createAuthFailMessage());
+        expect(authService.getState()).toBe(AuthState.Idle);
+
+        // 5. Send message from wrong peer during active auth
+        authService.initiateAuthentication('peer-A');
+        expect(authService.getState()).toBe(AuthState.AwaitingResponse);
+        simulateMessage('peer-B', AuthProtocol.createAuthResponseMessage('response')); // From wrong peer
+        expect(authService.getState()).toBe(AuthState.AwaitingResponse); // State unchanged
+        expect(mockMessageService.sendMessage).toHaveBeenCalledTimes(1); // Only initial AUTH_REQ
+    });
+
+    it('should handle malformed messages gracefully', () => {
+        const initialState = authService.getState();
+        simulateMessage('peer-1', { type: 'GIBBERISH', payload: null });
+        expect(authService.getState()).toBe(initialState); // No state change
+        simulateMessage('peer-1', { type: MessageType.AUTH_REQ }); // Missing payload
+        expect(authService.getState()).toBe(initialState);
+        simulateMessage('peer-1', null); // Null message
+        expect(authService.getState()).toBe(initialState);
+        // No errors should be thrown
+    });
+});

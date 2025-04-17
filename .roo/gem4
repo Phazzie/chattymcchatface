@@ -1,0 +1,128 @@
+import {
+    FileTransferProtocol,
+    MessageType,
+    FileChunk,
+    FileTransferRequest,
+    FileTransferAccept,
+    FileTransferReject,
+    FileTransferProgress,
+    FileTransferComplete,
+    FileTransferError,
+    FileTransferCancel
+} from '../../fileSharing/fileTransferProtocol'; // Adjust path as needed
+import { v4 as uuidv4 } from 'uuid'; // For generating unique transfer IDs
+
+describe('FileTransferProtocol', () => {
+    const transferId = uuidv4();
+    const fileName = 'test-document.txt';
+    const fileSize = 10240; // 10 KB
+    const chunkIndex = 5;
+    const totalChunks = 10;
+    const chunkData = Buffer.from('sample chunk data');
+    const reason = 'User declined';
+    const errorMessage = 'Network timeout';
+
+    describe('createFileTransferRequest', () => {
+        it('should create a valid FILE_TRANSFER_REQUEST message', () => {
+            const message = FileTransferProtocol.createFileTransferRequest(transferId, fileName, fileSize);
+            const expected: FileTransferRequest = {
+                type: MessageType.FILE_TRANSFER_REQUEST,
+                payload: { transferId, fileName, fileSize }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    describe('createFileTransferAccept', () => {
+        it('should create a valid FILE_TRANSFER_ACCEPT message', () => {
+            const message = FileTransferProtocol.createFileTransferAccept(transferId);
+            const expected: FileTransferAccept = {
+                type: MessageType.FILE_TRANSFER_ACCEPT,
+                payload: { transferId }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    describe('createFileTransferReject', () => {
+        it('should create a valid FILE_TRANSFER_REJECT message with reason', () => {
+            const message = FileTransferProtocol.createFileTransferReject(transferId, reason);
+            const expected: FileTransferReject = {
+                type: MessageType.FILE_TRANSFER_REJECT,
+                payload: { transferId, reason }
+            };
+            expect(message).toEqual(expected);
+        });
+
+        it('should create a valid FILE_TRANSFER_REJECT message without reason', () => {
+            const message = FileTransferProtocol.createFileTransferReject(transferId);
+            const expected: FileTransferReject = {
+                type: MessageType.FILE_TRANSFER_REJECT,
+                payload: { transferId, reason: undefined } // Or just { transferId } depending on impl.
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    describe('createFileChunk', () => {
+        it('should create a valid FILE_CHUNK message', () => {
+            const message = FileTransferProtocol.createFileChunk(transferId, chunkIndex, totalChunks, chunkData);
+            const expected: FileChunk = {
+                type: MessageType.FILE_CHUNK,
+                payload: { transferId, index: chunkIndex, total: totalChunks, data: chunkData.toString('base64') } // Assuming base64 encoding for transport
+            };
+            expect(message).toEqual(expected);
+            // Verify data can be decoded back
+            expect(Buffer.from(message.payload.data, 'base64')).toEqual(chunkData);
+        });
+    });
+
+    describe('createFileTransferProgress', () => {
+        it('should create a valid FILE_TRANSFER_PROGRESS message', () => {
+            const chunksReceived = 5;
+            const message = FileTransferProtocol.createFileTransferProgress(transferId, chunksReceived, totalChunks);
+            const expected: FileTransferProgress = {
+                type: MessageType.FILE_TRANSFER_PROGRESS,
+                payload: { transferId, chunksReceived, totalChunks }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+
+    describe('createFileTransferComplete', () => {
+        it('should create a valid FILE_TRANSFER_COMPLETE message', () => {
+            const message = FileTransferProtocol.createFileTransferComplete(transferId);
+            const expected: FileTransferComplete = {
+                type: MessageType.FILE_TRANSFER_COMPLETE,
+                payload: { transferId }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    describe('createFileTransferError', () => {
+        it('should create a valid FILE_TRANSFER_ERROR message', () => {
+            const message = FileTransferProtocol.createFileTransferError(transferId, errorMessage);
+            const expected: FileTransferError = {
+                type: MessageType.FILE_TRANSFER_ERROR,
+                payload: { transferId, message: errorMessage }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    describe('createFileTransferCancel', () => {
+        it('should create a valid FILE_TRANSFER_CANCEL message', () => {
+            const message = FileTransferProtocol.createFileTransferCancel(transferId);
+            const expected: FileTransferCancel = {
+                type: MessageType.FILE_TRANSFER_CANCEL,
+                payload: { transferId }
+            };
+            expect(message).toEqual(expected);
+        });
+    });
+
+    // Optional: Add validation function tests if implemented
+    // describe('validateMessage', () => { ... });
+});

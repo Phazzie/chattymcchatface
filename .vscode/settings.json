@@ -1,0 +1,48 @@
+{
+    "deepscan.ignoreConfirmWarning": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit"
+    },
+    "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+    "github.copilot.advanced": {},
+    "geminicodeassist.codeGenerationPaneViewEnabled": true,
+    "cloudcode.apigee.gemini.options": {
+        "enterpriseContext": {
+            "enabled": true,
+            "includeMetadata": true,
+            "includeSecurity": true,
+            "includeSchema": true
+        },
+        "enableRemoteMockServer": true
+    },
+
+    // CodeMetrics settings
+    "codemetrics.basics.ComplexityLevelExtreme": 15,
+    "codemetrics.basics.ComplexityLevelHigh": 8,
+    "codemetrics.basics.ComplexityLevelNormal": 4,
+    "codemetrics.basics.ComplexityLevelLow": 0,
+
+    // SonarLint settings
+    "sonarlint.rules": {
+        "typescript:S1541": { "level": "on" }, // Methods should not be too complex
+        "typescript:S138": { "level": "on", "parameters": { "max": 50 } }, // Functions should not have too many lines
+        "typescript:S103": { "level": "on", "parameters": { "maximumLineLength": 100 } }, // Lines should not be too long
+        "typescript:S107": { "level": "on", "parameters": { "max": 3 } }, // Functions should not have too many parameters
+        "typescript:S3776": { "level": "on", "parameters": { "threshold": 8 } }, // Cognitive complexity should not be too high
+        "typescript:S1448": { "level": "on" }, // Classes should not have too many methods
+        "typescript:S1820": { "level": "on" }, // Classes should not have too many fields
+        "typescript:S4784": { "level": "on" }, // Regular expressions should be safe
+        "typescript:S1172": { "level": "on" }, // Unused function parameters should be removed
+        "typescript:S1854": { "level": "on" }, // Unused assignments should be removed
+        "typescript:S2589": { "level": "on" }, // Boolean expressions should not be gratuitous
+        "typescript:S1126": { "level": "on" } // Return statements should not be used in finally blocks
+    },
+
+    // File size limits
+    "editor.rulers": [80, 100],
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true
+}

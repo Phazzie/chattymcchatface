@@ -1,0 +1,31 @@
+// .eslintrc.js
+module.exports = {
+    // ... (other configuration)
+    rules: {
+        // ... (other rules)
+        "sonarjs/cognitive-complexity": ["warn", 20], // High complexity often hard to extend.
+        complexity: ["warn", 10], // High cyclomatic complexity suggests rigid structures.
+        // Unconventional - Type Checking Usage:
+        "no-restricted-syntax": [
+            "warn",
+            {
+                selector: 'BinaryExpression[operator="instanceof"]',
+                message: 'Prefer polymorphism over "instanceof" checks for better extensibility.',
+            },
+            {
+                selector: "TSAsExpression",
+                message:
+                    "Type casting can indicate a need for better type relationships (e.g., polymorphism). Review for potential OCP issues.",
+            },
+        ],
+        //Manual Review Prompt - Configuration/Flag Driven Logic:
+        "max-statements": [
+            "warn",
+            {
+                max: 20,
+                ignoreTopLevelFunctions: true,
+            },
+        ],
+        // ... (other rules)
+    },
+};

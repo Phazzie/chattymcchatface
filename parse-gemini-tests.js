@@ -1,0 +1,123 @@
+/**
+ * Gemini Test Output Parser
+ * 
+ * This script parses test files from Gemini's output and saves them to the appropriate locations.
+ * 
+ * Usage: node parse-gemini-tests.js <input-file>
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+// Configuration
+const TEST_MARKER_START = '### TEST_FILE:';
+const TEST_MARKER_END = '### END_TEST_FILE';
+const DEFAULT_TEST_DIR = 'src/test';
+
+/**
+ * Parse test files from Gemini's output
+ * @param {string} content - The content to parse
+ * @returns {Array<{path: string, content: string}>} - Array of test files
+ */
+function parseTestFiles(content) {
+    const testFiles = [];
+    const lines = content.split('\n');
+    
+    let currentFile = null;
+    let currentContent = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (line.startsWith(TEST_MARKER_START)) {
+            // Start of a new test file
+            if (currentFile) {
+                // Save the previous file
+                testFiles.push({
+                    path: currentFile,
+                    content: currentContent.join('\n')
+                });
+            }
+            
+            // Extract the file path
+            currentFile = line.substring(TEST_MARKER_START.length).trim();
+            currentContent = [];
+        } else if (line === TEST_MARKER_END) {
+            // End of the current test file
+            if (currentFile) {
+                testFiles.push({
+                    path: currentFile,
+                    content: currentContent.join('\n')
+                });
+                currentFile = null;
+                currentContent = [];
+            }
+        } else if (currentFile) {
+            // Add line to current file content
+            currentContent.push(line);
+        }
+    }
+    
+    // Handle the case where the file ends without a TEST_MARKER_END
+    if (currentFile) {
+        testFiles.push({
+            path: currentFile,
+            content: currentContent.join('\n')
+        });
+    }
+    
+    return testFiles;
+}
+
+/**
+ * Save test files to disk
+ * @param {Array<{path: string, content: string}>} testFiles - Array of test files
+ */
+function saveTestFiles(testFiles) {
+    testFiles.forEach(file => {
+        const filePath = file.path;
+        const dirPath = path.dirname(filePath);
+        
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true });
+        }
+        
+        // Write file
+        fs.writeFileSync(filePath, file.content);
+        console.log(`Saved test file: ${filePath}`);
+    });
+}
+
+/**
+ * Main function
+ */
+function main() {
+    // Get input file from command line arguments
+    const args = process.argv.slice(2);
+    if (args.length === 0) {
+        console.error('Please provide an input file');
+        process.exit(1);
+    }
+    
+    const inputFile = args[0];
+    
+    // Read input file
+    try {
+        const content = fs.readFileSync(inputFile, 'utf8');
+        
+        // Parse test files
+        const testFiles = parseTestFiles(content);
+        console.log(`Found ${testFiles.length} test files`);
+        
+        // Save test files
+        saveTestFiles(testFiles);
+        
+        console.log('Done!');
+    } catch (error) {
+        console.error(`Error: ${error.message}`);
+        process.exit(1);
+    }
+}
+
+main();

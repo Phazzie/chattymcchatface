@@ -1,0 +1,98 @@
+# Progress Tracker: ChattyMcChatface
+
+This checklist guides the development process step-by-step. Mark items as complete as they are finished. Each item can serve as a prompt for the AI assistant.
+
+## Step 1: Project Setup & Basic Extension Structure (2 items)
+
+- [x] **Task:** Initialize VS Code extension project using `yo code`.
+    - **DoD:** Project structure created, dependencies installed, extension compiles and activates with a basic "Hello World" command.
+    - **AC:** `npm run compile` succeeds. Running the extension in the Extension Development Host shows the "Hello World" command in the command palette and it executes successfully.
+    - **Estimate:** 0.5 hours.
+- [x] **Task:** Configure basic extension details in `package.json` (name, publisher, description).
+    - **DoD:** `package.json` updated with project-specific details.
+    - **AC:** `name`, `publisher`, `displayName`, `description` fields are correctly filled.
+    - **Estimate:** 0.25 hours.
+
+## Step 2: Network Discovery & Connection Setup (using UDP Broadcast) (5 items)
+
+- [x] **Task:** Implement UDP broadcast sending logic in `NetworkManager`.
+    - **DoD:** Extension can send UDP broadcast packets on a defined port.
+    - **AC:** Network tools (like Wireshark or `netcat`) show packets being sent. Unit tests for message creation pass.
+    - **Estimate:** 2 hours.
+- [x] **Task:** Implement UDP broadcast listening logic in `NetworkManager`.
+    - **DoD:** Extension can receive and parse broadcast packets from peers.
+    - **AC:** Logs show received packets. Unit tests for parsing pass.
+    - **Estimate:** 2 hours.
+- [x] **Task:** Implement TCP server logic in `NetworkManager` to listen for incoming connections.
+    - **DoD:** Extension opens a TCP listening socket on a defined port.
+    - **AC:** `netstat` shows the port is listening. Unit tests for server setup pass.
+    - **Estimate:** 1.5 hours.
+- [x] **Task:** Implement TCP client logic in `NetworkManager` to connect after discovery.
+    - **DoD:** Extension attempts to establish a TCP connection to a discovered peer's IP/port.
+    - **AC:** Connection attempt is made upon receiving a valid broadcast. Unit tests for client connection pass.
+    - **Estimate:** 1.5 hours.
+- [x] **Task:** Integrate `NetworkManager` activation/deactivation into `extension.ts`.
+    - **DoD:** Discovery and listening start on extension activation and stop on deactivation.
+    - **AC:** Network activity starts/stops with the extension host process.
+    - **Estimate:** 1 hour.
+
+## Step 3: Authentication/Pairing ("Animal Names") (4 items)
+
+- [ ] **Task:** Define the simple auth protocol (e.g., Peer A connects, Peer B sends AUTH_REQ, Peer A sends AUTH_RESP(animals), Peer B validates and sends AUTH_SUCCESS/AUTH_FAIL).
+    - **DoD:** Protocol steps documented.
+    - **AC:** Clear sequence of messages and expected payloads defined.
+    - **Estimate:** 0.5 hours.
+- [ ] **Task:** Implement `AuthHandler` logic to manage the protocol state and validate names.
+    - **DoD:** `AuthHandler` class/module created with methods to start auth and handle incoming auth messages.
+    - **AC:** Unit tests for validation logic pass.
+    - **Estimate:** 3 hours.
+- [ ] **Task:** Integrate `AuthHandler` into `NetworkManager`'s connection sequence.
+    - **DoD:** `NetworkManager` initiates auth via `AuthHandler` after TCP connection and only proceeds if auth succeeds.
+    - **AC:** Integration tests show auth occurs and blocks/allows communication appropriately.
+    - **Estimate:** 1.5 hours.
+- [ ] **Task:** Add simple VS Code input prompts (`vscode.window.showInputBox`) triggered by `AuthHandler` to ask the user for the three animal names.
+    - **DoD:** Users are prompted for animal names during the pairing process.
+    - **AC:** Input box appears when required by the auth protocol. Entered names are passed to `AuthHandler`.
+    - **Estimate:** 1 hour.
+
+## Step 4: Webview UI Panel (5 items)
+
+- [x] **Task:** Create basic HTML structure (`webview/index.html`) for message list, input field, and send button.
+    - **DoD:** HTML file exists with necessary elements and IDs/classes.
+    - **AC:** Renders basic structure when opened in a browser.
+    - **Estimate:** 1 hour.
+- [x] **Task:** Create basic CSS (`webview/style.css`) for layout and appearance.
+    - **DoD:** CSS file exists with basic styling rules.
+    - **AC:** HTML renders with improved layout and styling.
+    - **Estimate:** 1.5 hours.
+- [x] **Task:** Implement `WebviewProvider` to create and show a VS Code panel with the HTML content.
+    - **DoD:** A command opens a VS Code panel displaying the static HTML/CSS.
+    - **AC:** Running a VS Code command (e.g., "Start Chat") opens the panel.
+    - **Estimate:** 2 hours.
+- [x] **Task:** Implement `webview/main.js` to capture input field text and send it to the extension host via `postMessage` on button click/enter key.
+    - **DoD:** Text entered in the webview input is received by `WebviewProvider`.
+    - **AC:** `WebviewProvider` logs messages received from the webview. Input field clears after sending. Unit tests for message sending pass.
+    - **Estimate:** 2 hours.
+- [x] **Task:** Implement logic in `WebviewProvider` and `webview/main.js` to receive messages from the extension host and display them in the message list area.
+    - **DoD:** Messages sent _to_ the webview are displayed in the UI.
+    - **AC:** Calling a method on `WebviewProvider` results in a new message appearing in the webview panel. Unit tests for message receiving/display pass.
+    - **Estimate:** 2 hours.
+
+## Step 5: Message Sending & Receiving Logic (4 items)
+
+- [ ] **Task:** Implement `NetworkManager.sendMessage(data)` method.
+    - **DoD:** `NetworkManager` can send arbitrary string/buffer data over the established, authenticated connection.
+    - **AC:** Data sent via the method is received by the connected peer. Unit tests pass.
+    - **Estimate:** 1 hour.
+- [ ] **Task:** Implement message receiving and event emission in `NetworkManager`.
+    - **DoD:** `NetworkManager` parses incoming data (e.g., splits by newline) and emits an event (e.g., `onMessageReceived`) with the message payload.
+    - **AC:** Data received on the socket triggers the event with the correct payload. Unit tests pass.
+    - **Estimate:** 1.5 hours.
+- [ ] **Task:** Wire up the message flow: Webview input -> `extension.ts` -> `NetworkManager.sendMessage`.
+    - **DoD:** Messages typed in the webview are sent over the network connection.
+    - **AC:** Integration test shows message sent from UI is received by peer's `NetworkManager`.
+    - **Estimate:** 1 hour.
+- [ ] **Task:** Wire up the message flow: `NetworkManager` event -> `extension.ts` -> `WebviewProvider` -> Display in Webview.
+    - **DoD:** Messages received from the network are displayed in the webview UI.
+    - **AC:** Integration test shows message received by `NetworkManager` appears in the local webview UI.
+    - **Estimate:** 1 hour.

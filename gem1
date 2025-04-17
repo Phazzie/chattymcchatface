@@ -1,0 +1,211 @@
+Here's the test file for the authentication service:
+
+### TEST_FILE: src/test/auth/authService.test.ts
+import * as vscode from 'vscode';
+import { AuthService } from '../../auth/authService';
+import { EventEmitter } from 'events';
+
+describe('AuthService', () => {
+    let authService: AuthService;
+    let mockSocket: any;
+    let mockEventEmitter: EventEmitter;
+    
+    beforeEach(() => {
+        mockSocket = {
+            write: jest.fn(),
+            on: jest.fn(),
+            off: jest.fn()
+        };
+        
+        mockEventEmitter = new EventEmitter();
+        
+        authService = new AuthService(mockSocket, mockEventEmitter);
+    });
+    
+    describe('initialize', () => {
+        it('should set up event listeners', () => {
+            authService.initialize();
+            
+            expect(mockSocket.on).toHaveBeenCalledWith('data', expect.any(Function));
+            expect(mockSocket.on).toHaveBeenCalledWith('error', expect.any(Function));
+        });
+    });
+    
+    describe('sendAuthRequest', () => {
+        it('should send an AUTH_REQ message', () => {
+            authService.sendAuthRequest();
+            
+            expect(mockSocket.write).toHaveBeenCalledWith(
+                expect.stringContaining('"type":"AUTH_REQ"')
+            );
+        });
+    });
+    
+    describe('handleAuthResponse', () => {
+        it('should emit auth-challenge event with the challenge', () => {
+            const spy = jest.spyOn(mockEventEmitter, 'emit');
+            
+            authService.handleAuthResponse({ challenge: 'elephant' });
+            
+            expect(spy).toHaveBeenCalledWith('auth-challenge', 'elephant');
+        });
+    });
+    
+    describe('submitAuthResponse', () => {
+        it('should send an AUTH_RESP message with the response', () => {
+            authService.submitAuthResponse('tiger');
+            
+            expect(mockSocket.write).toHaveBeenCalledWith(
+                expect.stringContaining('"type":"AUTH_RESP"')
+            );
+            expect(mockSocket.write).toHaveBeenCalledWith(
+                expect.stringContaining('"response":"tiger"')
+            );
+        });
+    });
+    
+    describe('handleAuthResult', () => {
+        it('should emit auth-success event when authentication succeeds', () => {
+            const spy = jest.spyOn(mockEventEmitter, 'emit');
+            
+            authService.handleAuthResult({ success: true });
+            
+            expect(spy).toHaveBeenCalledWith('auth-success');
+        });
+        
+        it('should emit auth-failure event when authentication fails', () => {
+            const spy = jest.spyOn(mockEventEmitter, 'emit');
+            
+            authService.handleAuthResult({ success: false, reason: 'Invalid response' });
+            
+            expect(spy).toHaveBeenCalledWith('auth-failure', 'Invalid response');
+        });
+    });
+    
+    describe('cleanup', () => {
+        it('should remove all event listeners', () => {
+            authService.cleanup();
+            
+            expect(mockSocket.off).toHaveBeenCalledWith('data', expect.any(Function));
+            expect(mockSocket.off).toHaveBeenCalledWith('error', expect.any(Function));
+        });
+    });
+});
+### END_TEST_FILE
+
+### TEST_FILE: src/test/auth/authUI.test.ts
+import * as vscode from 'vscode';
+import { AuthUI } from '../../auth/authUI';
+import { EventEmitter } from 'events';
+
+describe('AuthUI', () => {
+    let authUI: AuthUI;
+    let mockAuthService: any;
+    let mockEventEmitter: EventEmitter;
+    let mockShowInputBox: jest.Mock;
+    let mockShowInformationMessage: jest.Mock;
+    let mockShowErrorMessage: jest.Mock;
+    
+    beforeEach(() => {
+        mockAuthService = {
+            sendAuthRequest: jest.fn(),
+            submitAuthResponse: jest.fn(),
+            cleanup: jest.fn()
+        };
+        
+        mockEventEmitter = new EventEmitter();
+        
+        // Mock VS Code API
+        mockShowInputBox = jest.fn();
+        mockShowInformationMessage = jest.fn();
+        mockShowErrorMessage = jest.fn();
+        
+        (vscode.window.showInputBox as any) = mockShowInputBox;
+        (vscode.window.showInformationMessage as any) = mockShowInformationMessage;
+        (vscode.window.showErrorMessage as any) = mockShowErrorMessage;
+        
+        authUI = new AuthUI(mockAuthService, mockEventEmitter);
+    });
+    
+    describe('initialize', () => {
+        it('should set up event listeners', () => {
+            const spy = jest.spyOn(mockEventEmitter, 'on');
+            
+            authUI.initialize();
+            
+            expect(spy).toHaveBeenCalledWith('auth-challenge', expect.any(Function));
+            expect(spy).toHaveBeenCalledWith('auth-success', expect.any(Function));
+            expect(spy).toHaveBeenCalledWith('auth-failure', expect.any(Function));
+        });
+    });
+    
+    describe('startAuthentication', () => {
+        it('should call sendAuthRequest on the auth service', () => {
+            authUI.startAuthentication();
+            
+            expect(mockAuthService.sendAuthRequest).toHaveBeenCalled();
+        });
+    });
+    
+    describe('handleChallenge', () => {
+        it('should show input box with the challenge', async () => {
+            mockShowInputBox.mockResolvedValue('tiger');
+            
+            await authUI.handleChallenge('elephant');
+            
+            expect(mockShowInputBox).toHaveBeenCalledWith({
+                prompt: expect.stringContaining('elephant'),
+                placeHolder: expect.any(String)
+            });
+        });
+        
+        it('should submit response to auth service', async () => {
+            mockShowInputBox.mockResolvedValue('tiger');
+            
+            await authUI.handleChallenge('elephant');
+            
+            expect(mockAuthService.submitAuthResponse).toHaveBeenCalledWith('tiger');
+        });
+        
+        it('should handle canceled input', async () => {
+            mockShowInputBox.mockResolvedValue(undefined);
+            
+            await authUI.handleChallenge('elephant');
+            
+            expect(mockAuthService.submitAuthResponse).not.toHaveBeenCalled();
+        });
+    });
+    
+    describe('handleAuthSuccess', () => {
+        it('should show success message', () => {
+            authUI.handleAuthSuccess();
+            
+            expect(mockShowInformationMessage).toHaveBeenCalledWith(
+                expect.stringContaining('successful')
+            );
+        });
+    });
+    
+    describe('handleAuthFailure', () => {
+        it('should show error message with reason', () => {
+            authUI.handleAuthFailure('Invalid response');
+            
+            expect(mockShowErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Invalid response')
+            );
+        });
+    });
+    
+    describe('cleanup', () => {
+        it('should remove all event listeners', () => {
+            const spy = jest.spyOn(mockEventEmitter, 'off');
+            
+            authUI.cleanup();
+            
+            expect(spy).toHaveBeenCalledWith('auth-challenge', expect.any(Function));
+            expect(spy).toHaveBeenCalledWith('auth-success', expect.any(Function));
+            expect(spy).toHaveBeenCalledWith('auth-failure', expect.any(Function));
+        });
+    });
+});
+### END_TEST_FILE

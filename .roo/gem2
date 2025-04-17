@@ -1,0 +1,110 @@
+import * as vscode from 'vscode';
+import { AuthUI } from '../../auth/authUI'; // Adjust path as needed
+
+// Mock the VS Code API
+const mockShowInputBox = jest.fn();
+const mockShowInformationMessage = jest.fn();
+const mockShowErrorMessage = jest.fn();
+
+// Deep mock for window object
+jest.mock('vscode', () => ({
+    window: {
+        showInputBox: (...args: any[]) => mockShowInputBox(...args),
+        showInformationMessage: (...args: any[]) => mockShowInformationMessage(...args),
+        showErrorMessage: (...args: any[]) => mockShowErrorMessage(...args),
+    },
+    // Mock other VS Code parts if needed by AuthUI
+    // e.g., ProgressLocation if using progress indicators
+}), { virtual: true });
+
+describe('AuthUI', () => {
+    let authUI: AuthUI;
+
+    beforeEach(() => {
+        // Reset mocks before each test
+        jest.clearAllMocks();
+        authUI = new AuthUI();
+    });
+
+    describe('promptForChallengeResponse', () => {
+        const challenge = 'Capybara';
+
+        it('should show input box with correct prompt and placeholder', async () => {
+            mockShowInputBox.mockResolvedValue('Capybara');
+            await authUI.promptForChallengeResponse(challenge);
+
+            expect(mockShowInputBox).toHaveBeenCalledTimes(1);
+            expect(mockShowInputBox).toHaveBeenCalledWith(expect.objectContaining({
+                prompt: `Authentication Challenge: Enter the word "${challenge}"`,
+                placeHolder: 'Enter challenge word',
+                ignoreFocusOut: true, // Crucial for auth prompts
+                password: false, // Assuming plain text challenge words
+            }));
+        });
+
+        it('should return the user input on valid submission', async () => {
+            const userInput = 'Capybara';
+            mockShowInputBox.mockResolvedValue(userInput);
+            const response = await authUI.promptForChallengeResponse(challenge);
+            expect(response).toBe(userInput);
+        });
+
+        it('should return undefined if user cancels (presses Esc)', async () => {
+            mockShowInputBox.mockResolvedValue(undefined);
+            const response = await authUI.promptForChallengeResponse(challenge);
+            expect(response).toBeUndefined();
+        });
+
+        it('should provide input validation (case-insensitive)', async () => {
+            mockShowInputBox.mockResolvedValue('anything'); // Value doesn't matter here
+            await authUI.promptForChallengeResponse(challenge);
+
+            expect(mockShowInputBox).toHaveBeenCalledWith(expect.objectContaining({
+                validateInput: expect.any(Function),
+            }));
+
+            // Get the validator function
+            const validator = mockShowInputBox.mock.calls[0][0].validateInput;
+            expect(validator('Capybara')).toBeNull(); // Correct case
+            expect(validator('capybara')).toBeNull(); // Incorrect case
+            expect(validator('capy bara')).toMatch(/incorrect/i); // Incorrect word
+            expect(validator('')).toMatch(/cannot be empty/i); // Empty
+            expect(validator(undefined)).toMatch(/cannot be empty/i); // Undefined
+        });
+    });
+
+    describe('showAuthSuccess', () => {
+        it('should display an information message for success', () => {
+            const peerId = 'peer-friend-1';
+            authUI.showAuthSuccess(peerId);
+            expect(mockShowInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockShowInformationMessage).toHaveBeenCalledWith(`Successfully authenticated with ${peerId}.`);
+        });
+    });
+
+    describe('showAuthFailure', () => {
+        it('should display an error message with a reason', () => {
+            const peerId = 'peer-foe-1';
+            const reason = 'Timeout';
+            authUI.showAuthFailure(peerId, reason);
+            expect(mockShowErrorMessage).toHaveBeenCalledTimes(1);
+            expect(mockShowErrorMessage).toHaveBeenCalledWith(`Authentication with ${peerId} failed: ${reason}`);
+        });
+
+        it('should display a generic error message if no reason provided', () => {
+            const peerId = 'peer-foe-2';
+            authUI.showAuthFailure(peerId);
+            expect(mockShowErrorMessage).toHaveBeenCalledTimes(1);
+            expect(mockShowErrorMessage).toHaveBeenCalledWith(`Authentication with ${peerId} failed.`);
+        });
+    });
+
+    describe('showAuthRequestReceived', () => {
+        it('should display an information message for incoming requests', () => {
+            const peerId = 'peer-requester-1';
+            authUI.showAuthRequestReceived(peerId);
+            expect(mockShowInformationMessage).toHaveBeenCalledTimes(1);
+            expect(mockShowInformationMessage).toHaveBeenCalledWith(`Incoming authentication request from ${peerId}. Please respond to the challenge.`);
+        });
+    });
+});

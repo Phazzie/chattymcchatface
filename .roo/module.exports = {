@@ -1,0 +1,50 @@
+module.exports = {
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+        "ecmaVersion": 2020,
+        "sourceType": "module",
+        "project": "./tsconfig.json"
+    },
+    "plugins": [
+        "@typescript-eslint",
+        "eslint-plugin-import",
+        "eslint-plugin-jsdoc",
+        "eslint-plugin-prefer-arrow",
+        "eslint-plugin-sonarjs"
+    ],
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended",
+        "plugin:sonarjs/recommended"
+    ],
+    "rules": {
+        // SRP (Single Responsibility Principle)
+        "max-lines-per-function": ["warn", { "max": 50 }],
+        "max-lines": ["warn", { "max": 300 }],
+        "sonarjs/cognitive-complexity": ["warn", 15],
+
+        // OCP (Open/Closed Principle)
+        "no-switch-statements/no-switch": "warn",
+        "@typescript-eslint/no-explicit-any": "warn",
+
+        // LSP (Liskov Substitution Principle)
+        "@typescript-eslint/explicit-module-boundary-types": "warn",
+        "@typescript-eslint/no-non-null-assertion": "warn",
+
+        // ISP (Interface Segregation Principle)
+        "@typescript-eslint/no-empty-interface": "warn",
+
+        // DIP (Dependency Inversion Principle)
+        "@typescript-eslint/no-var-requires": "warn",
+
+        // DRY (Don't Repeat Yourself)
+        "sonarjs/no-duplicate-string": ["warn", { "threshold": 3 }],
+        "sonarjs/no-identical-functions": "warn",
+
+        // General code quality
+        "sonarjs/no-redundant-jump": "warn",
+        "sonarjs/no-small-switch": "warn",
+        "sonarjs/prefer-immediate-return": "warn",
+        "sonarjs/no-identical-expressions": "warn"
+    }
+}
